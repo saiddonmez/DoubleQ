@@ -15,18 +15,12 @@ else:
 GAME = 'BreakoutNoFrameskip-v4'
 NUMACTIONS = 4
 
-# class lossFunc(nn.Module):
-#     def __init__(self):
-#         super().__init__()
-
-#     def forward(self, predictions, targets):
-#         return torch.mean((predictions - targets) ** 2)
 
 class DDQN():
     
-    def __init__(self,GAME,NUMACTIONS,initEpsilon=1,finalEpsilon=0.1, epsilonResetTime=1e6,\
-                 bufferSize=1e6,batchSize=32,totalTrainSteps=5e7,lr=0.00025, discount=0.99,tau=10000,\
-                 evaluationSteps=4500,evaluationEpisodes=100,evaluationFreq=1e6, evaluationEpsilon = 0.05, noopActions = 30,\
+    def __init__(self,GAME,NUMACTIONS,initEpsilon=1,finalEpsilon=0.1, epsilonResetTime=10000,\
+                 bufferSize=10000,batchSize=32,totalTrainSteps=500000,lr=0.00025, discount=0.99,tau=1000,\
+                 evaluationSteps=4500,evaluationEpisodes=10,evaluationFreq=1e6, evaluationEpsilon = 0.05, noopActions = 30,\
                  momentum=0.95):
         
         self.numactions = NUMACTIONS
@@ -61,7 +55,7 @@ class DDQN():
         #initialize environment
         self.worker = game.Worker(GAME,47)
 
-        self.worker.child.send('reset')
+        self.worker.child.send(('reset',None))
         self.state = self.worker.child.recv() # Stacked 4 consecutive frames of the game
 
     def takeAction(self,epsilon,evaluate=False,action=None):
@@ -76,7 +70,7 @@ class DDQN():
             self.replayBuffer.recordSample(self.state,action,reward,nextState,done)
             
         if done:
-            self.worker.child.send('reset')
+            self.worker.child.send(('reset',None))
             self.state = self.worker.child.recv() # Stacked 4 consecutive frames of the game
         else:
             self.state = nextState
@@ -84,7 +78,7 @@ class DDQN():
         return reward
 
     def train(self):
-        step = 0
+        step = 1
         
         for e in range(self.totalTrainSteps):
 
@@ -102,16 +96,16 @@ class DDQN():
 
                 batch = self.replayBuffer.sample(self.batchSize)
 
-                state = torch.from_numpy(batch['state']).to(device)
+                state = torch.tensor(batch['state'],dtype=torch.float32,device=device) / 255.0
                 action = torch.from_numpy(batch['action']).to(device)
-                nextState = torch.from_numpy(batch['nextState']).to(device)
+                nextState = torch.tensor(batch['nextState'],dtype=torch.float32,device=device) / 255.0
                 reward = torch.from_numpy(batch['reward']).to(device)
-                terminated = torch.from_numpy(batch['terminated']).to(device)
+                terminated = torch.from_numpy(batch['terminated'].astype(int)).to(device)
                 
                 q = self.model(state)
                 target = self.calculateTarget(nextState,reward,terminated)
 
-                loss = self.loss(q,target)
+                loss = self.loss(q[action],target)
                 loss.backward()
            
                 step += 1
@@ -120,7 +114,10 @@ class DDQN():
 
                 meanTotalReward, stdTotalReward = self.evaluate()
 
-        pass
+            if step % self.tau == 0:
+
+                self.targetModel.load_state_dict(self.model.state_dict())
+
 
     def actionSample(self,state,epsilon):
 
@@ -135,22 +132,20 @@ class DDQN():
 
         with torch.no_grad():
 
-            if terminated:
-                target = reward
-            else:
-                q = self.model(nextState)
-                q_tilda = self.targetModel(nextState)
-                target = reward + self.discount*q_tilda(torch.argmax(q)) #double q idea
+            q = self.model(nextState)
+            q_tilda = self.targetModel(nextState)
+            target = reward + (1-terminated) * self.discount*q_tilda(torch.argmax(q)) #double q idea
 
         return target
         
     def evaluate(self):
 
-        #initialize the game
-        self.worker.child.send('reset')
-        self.state = self.worker.child.recv() # Stacked 4 consecutive frames of the game
+
         TotalRewards = []
-        for agentNo in range(self.evaluationAgents):
+        for agentNo in range(self.evaluationEpisodes):
+            #initialize the game
+            self.worker.child.send(('reset',None))
+            self.state = self.worker.child.recv() # Stacked 4 consecutive frames of the game
             totalReward = 0
             for k in range(self.noopActions): #number of no operation actions
                 reward = self.takeAction(self.evaluationEpsilon,evaluate=True,action=0)
@@ -173,3 +168,8 @@ class DDQN():
 
             
             
+if __name__ == "__main__":
+
+    
+    agent = DDQN(GAME,NUMACTIONS)
+    agent.train()

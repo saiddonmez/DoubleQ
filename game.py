@@ -70,7 +70,8 @@ class Game:
         # run for 4 steps
         for i in range(4):
             # execute the action in the OpenAI Gym environment
-            obs, r, done, info = self.env.step(action)
+            #obs, r, done, info = self.env.step(action)
+            obs, r, done, truncated, info = self.env.step(action)
 
             if i >= 2:
                 self.obs_2_max[i % 2] = self._process_obs(obs)
@@ -113,12 +114,13 @@ class Game:
         obs = self.env.reset()
 
         # reset caches
-        obs = self._process_obs(obs)
+        obsFrame = self._process_obs(obs[0])
         for i in range(4):
-            self.obs_4[i] = obs
+            self.obs_4[i] = obsFrame
         self.rewards = []
 
-        self.lives = self.env.unwrapped.ale.lives()
+        #self.lives = self.env.unwrapped.ale.lives()
+        self.lives = obs[1]['lives']
 
         return self.obs_4
 

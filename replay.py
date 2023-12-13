@@ -2,12 +2,12 @@ import numpy as np
 
 class replayBuffer():
 
-    def __init__(self,size,NUMACTIONS):
-        self.dataset = {'state':np.zeros((size,4,84,84),dtype=np.int8),
+    def __init__(self,size):
+        self.dataset = {'state':np.zeros((size,4,84,84),dtype=np.uint8),
                         'action':np.zeros(size,dtype=np.int16),
                         'reward':np.zeros(size,dtype=np.float32),
-                        'nextState':np.zeros((size,4,84,84),dtype=np.int8),
-                        'terminated':np.zeros(size,dtype=np.bool)
+                        'nextState':np.zeros((size,4,84,84),dtype=np.uint8),
+                        'terminated':np.zeros(size,dtype=bool)
                         }
         
         self.lastIndex = 0
