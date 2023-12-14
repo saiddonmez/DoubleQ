@@ -35,10 +35,10 @@ class Game:
     i.e, each channel is a frame.
     """
 
-    def __init__(self, gameType, seed: int):
+    def __init__(self, gameType, renderMode, seed: int):
         # create environment
         #self.env = gym.make('BreakoutNoFrameskip-v4')
-        self.env = gym.make(gameType)
+        self.env = gym.make(gameType, render_mode = renderMode)
         self.env.seed(seed)
 
         # tensor for a stack of 4 frames
@@ -73,8 +73,12 @@ class Game:
             #obs, r, done, info = self.env.step(action)
             obs, r, done, truncated, info = self.env.step(action)
 
-            if i >= 2:
-                self.obs_2_max[i % 2] = self._process_obs(obs)
+            # if i >= 2:
+            #     self.obs_2_max[i % 2] = self._process_obs(obs)
+
+            obs = self._process_obs(obs)
+
+            self.obs_4[i,:,:] = obs
 
             reward += r
 
@@ -95,12 +99,12 @@ class Game:
         else:
             episode_info = None
 
-            # get the max of last two frames
-            obs = self.obs_2_max.max(axis=0)
+            # # get the max of last two frames
+            # obs = self.obs_2_max.max(axis=0)
 
-            # push it to the stack of 4 frames
-            self.obs_4 = np.roll(self.obs_4, shift=-1, axis=0)
-            self.obs_4[-1] = obs
+            # # push it to the stack of 4 frames
+            # self.obs_4 = np.roll(self.obs_4, shift=-1, axis=0)
+            # self.obs_4[-1] = obs
 
         return self.obs_4, reward, done, episode_info
 
@@ -135,7 +139,7 @@ class Game:
         return obs
 
 
-def worker_process(remote: multiprocessing.connection.Connection, gameType, seed: int):
+def worker_process(remote: multiprocessing.connection.Connection, gameType, renderMode, seed: int):
     """
     ##Worker Process
 
@@ -143,7 +147,7 @@ def worker_process(remote: multiprocessing.connection.Connection, gameType, seed
     """
 
     # create game
-    game = Game(gameType,seed)
+    game = Game(gameType, renderMode, seed)
 
     # wait for instructions from the connection and execute them
     while True:
@@ -164,9 +168,9 @@ class Worker:
     Creates a new worker and runs it in a separate process.
     """
 
-    def __init__(self, gameType, seed):
+    def __init__(self, gameType, renderMode, seed):
         self.child, parent = multiprocessing.Pipe()
-        self.process = multiprocessing.Process(target=worker_process, args=(parent, gameType, seed))
+        self.process = multiprocessing.Process(target=worker_process, args=(parent, gameType, renderMode, seed))
         self.process.start()
 
 

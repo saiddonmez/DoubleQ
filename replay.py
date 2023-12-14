@@ -4,7 +4,7 @@ class replayBuffer():
 
     def __init__(self,size):
         self.dataset = {'state':np.zeros((size,4,84,84),dtype=np.uint8),
-                        'action':np.zeros(size,dtype=np.int16),
+                        'action':np.zeros(size,dtype=np.int64),
                         'reward':np.zeros(size,dtype=np.float32),
                         'nextState':np.zeros((size,4,84,84),dtype=np.uint8),
                         'terminated':np.zeros(size,dtype=bool)
