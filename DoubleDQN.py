@@ -8,6 +8,7 @@ import torch.optim as optim
 from time import perf_counter
 from game import Game
 import pickle
+import matplotlib.pyplot as plt
 
 # If cuda is available, use gpu
 if torch.cuda.is_available():
@@ -15,22 +16,22 @@ if torch.cuda.is_available():
 else:
     device = torch.device("cpu")
 
-GAME = 'AssaultNoFrameskip-v4'
+GAME = 'AssaultDeterministic-v4'
 NUMACTIONS = 7
 
 
 class DDQN():
     
-    def __init__(self,GAME,NUMACTIONS,initEpsilon=1,finalEpsilon=0.1, epsilonResetTime=1000,\
-                 bufferSize=1000,batchSize=32,totalTrainSteps=500000,lr=0.0025, discount=0.99,tau=100,\
-                 evaluationSteps=450,evaluationEpisodes=10,evaluationFreq=1000, evaluationEpsilon = 0.05, noopActions = 8,\
+    def __init__(self,GAME,NUMACTIONS,initEpsilon=1,finalEpsilon=0.1, epsilonDecreaseTime=100000,\
+                 bufferSize=100000,batchSize=32,totalTrainSteps=5000000,lr=0.0005, discount=0.99,tau=10000,\
+                 evaluationSteps=4500,evaluationEpisodes=10,evaluationFreq=100000, evaluationEpsilon = 0.05, noopActions = 8,\
                  momentum=0.95,render=False,modelPath=None):
         
         self.numactions = NUMACTIONS
         self.initEpsilon = initEpsilon
         self.finalEpsilon = finalEpsilon
         self.epsilon = self.initEpsilon
-        self.epsilonResetTime = epsilonResetTime
+        self.epsilonDecreaseTime = epsilonDecreaseTime
         self.bufferSize = bufferSize
         self.batchSize = batchSize
         self.totalTrainSteps = totalTrainSteps
@@ -50,6 +51,7 @@ class DDQN():
 
         if modelPath != None:
             self.model.load_state_dict(torch.load(modelPath))
+            self.initEpsilon = self.finalEpsilon #to continue the training if it stopped for some reason
 
         self.targetModel.load_state_dict(self.model.state_dict())
 
@@ -63,7 +65,7 @@ class DDQN():
         if render:
             self.worker = Game(GAME, renderMode = "human", seed = 47)
         else:
-            self.worker = game.Worker(GAME,None,47)
+            self.worker = game.Worker(GAME,None,8)
             self.worker.child.send(('reset',None))
             self.state = self.worker.child.recv() # Stacked 4 consecutive frames of the game
 
@@ -91,11 +93,12 @@ class DDQN():
         return reward, done, value
     
     def takeAction2(self,epsilon,evaluate=False,action=None):
-        if action == None:
-            state = torch.tensor(self.state,dtype=torch.float32,device=device) / 255.0
-            action, value = self.actionSample(state,self.epsilon)
 
-        
+        state = torch.tensor(self.state,dtype=torch.float32,device=device) / 255.0
+        actionSelected, value = self.actionSample(state,self.epsilon)
+        if action == None:
+            action = actionSelected
+
         nextState, reward, done, info = self.worker.step(action)
 
         if not evaluate:
@@ -113,8 +116,9 @@ class DDQN():
 
         t0 = perf_counter()
         totalTime = [0,0]
+        losses = 0
 
-        evalStats = {"meanScores":[], "stdScores":[],"medianValues":[],"lowerValues":[],"higherValues":[]}
+        evalStats = {"meanScores":[], "stdScores":[],"medianValues":[],"lowerValues":[],"higherValues":[],"meanLosses":[]}
         
         for e in range(self.totalTrainSteps):
 
@@ -127,8 +131,8 @@ class DDQN():
                 totalTime[0] += t2-t1
 
                 #Linearly decreasing epsilon during first 1M frames from 1 to 0.1 then fixed after 1M frames.
-                if step < self.epsilonResetTime:
-                    self.epsilon = self.initEpsilon - (self.initEpsilon-self.finalEpsilon)*step/self.epsilonResetTime
+                if step < self.epsilonDecreaseTime:
+                    self.epsilon = self.initEpsilon - (self.initEpsilon-self.finalEpsilon)*step/self.epsilonDecreaseTime
                 else:
                     self.epsilon = self.finalEpsilon
             
@@ -156,8 +160,12 @@ class DDQN():
                 t3 = perf_counter()
 
                 totalTime[1] += t3-t2
+                losses += loss.detach()
 
             if step % self.evaluationFreq == 0:
+
+                print(f"total loss in the last {self.evaluationFreq} steps is {losses}")
+                
 
                 meanTotalReward, stdTotalReward, medianTotalValue, lowerPercentile, higherPercentile = self.evaluate()
 
@@ -166,30 +174,31 @@ class DDQN():
                 evalStats['medianValues'].append(medianTotalValue)
                 evalStats['lowerValues'].append(lowerPercentile)
                 evalStats['higherValues'].append(higherPercentile)
+                evalStats['meanLosses'].append(losses/self.evaluationFreq)
+
+                losses=0
 
                 print(f"{step} step , total time: {perf_counter()-t0}")
 
                 print(f"total time for simulation in {step} steps is {totalTime[0]}")
                 print(f"total time for training in {step} steps is {totalTime[1]}")
 
-                torch.save(self.model.state_dict(),f"{GAME}_step_{step}.pth")
-                
-
-
+                torch.save(self.model.state_dict(),f"./savedModels/{GAME.split('/')[-1]}_step_{step}.pth")
+                torch.save(self.bestWeights,f"./bestSavedModels/{GAME.split('/')[-1]}_step_{step}.pth")
+                with open(f"evalStats.pkl","wb") as f:
+                    pickle.dump(evalStats, f)
             if step % self.tau == 0:
 
                 self.targetModel.load_state_dict(self.model.state_dict())
 
-        with open(f"evalStats.pkl","wb") as f:
-            pickle.dump(evalStats, f)
-
+        self.worker.child.send(("close", None))
 
     def actionSample(self,state,epsilon):
-        q = self.model(state)
-        if np.random.rand()<epsilon:
-            return np.random.choice(self.numactions), torch.max(q).cpu()
-        else:
-            with torch.no_grad():          
+        with torch.no_grad():
+            q = self.model(state)
+            if np.random.rand()<epsilon:
+                return np.random.choice(self.numactions), torch.max(q).cpu()
+            else:
                 return torch.argmax(q).cpu(), torch.max(q).cpu()
 
     def calculateTarget(self,nextState,reward,terminated):
@@ -250,7 +259,7 @@ class DDQN():
         
     def render(self):
 
-        self.worker.reset()
+        self.state = self.worker.reset()
         totalReward = 0
 
         for k in range(self.noopActions): #number of no operation actions
@@ -263,14 +272,27 @@ class DDQN():
             totalReward += reward
             self.worker.env.render()
         
+        self.worker.child.send(("close", None))
             
 if __name__ == "__main__":
 
-    
-    agent = DDQN(GAME,NUMACTIONS)
+#    modelPath = r"savedModels\Assault-v5_step_950000.pth"
+    modelPath = None    
+    agent = DDQN(GAME,NUMACTIONS,modelPath=modelPath)
     agent.train()
 
-    # modelPath = r"C:\Users\ahmet\Desktop\Bilkent_Grad\EEE548\Project\DoubleQ\AssaultNoFrameskip-v4_step_60000.pth"
+
 
     # agent = DDQN(GAME,NUMACTIONS,modelPath = modelPath, render=True)
     # agent.render()
+
+
+# #%%
+# import matplotlib.pyplot as plt
+# import numpy as np
+# import pickle
+# with open(f"evalStats.pkl","rb") as f:
+#     evalStats = pickle.load(f)
+
+# plt.plot(evalStats['meanScores'])
+# # %%
