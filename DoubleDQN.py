@@ -9,6 +9,7 @@ from time import perf_counter
 from game import Game
 import pickle
 import matplotlib.pyplot as plt
+from datetime import datetime
 
 # If cuda is available, use gpu
 if torch.cuda.is_available():
@@ -23,7 +24,7 @@ NUMACTIONS = 7
 class DDQN():
     
     def __init__(self,GAME,NUMACTIONS,initEpsilon=1,finalEpsilon=0.1, epsilonDecreaseTime=100000,\
-                 bufferSize=100000,batchSize=32,totalTrainSteps=5000000,lr=0.0005, discount=0.99,tau=10000,\
+                 bufferSize=100000,batchSize=32,totalTrainSteps=5000000,lr=0.00025, discount=0.99,tau=10000,\
                  evaluationSteps=4500,evaluationEpisodes=10,evaluationFreq=100000, evaluationEpsilon = 0.05, noopActions = 8,\
                  momentum=0.95,render=False,modelPath=None):
         
@@ -49,14 +50,19 @@ class DDQN():
         self.model = Model(self.numactions).to(device)
         self.targetModel = Model(self.numactions).to(device)
 
+        self.evalStats = {"meanScores":[], "stdScores":[],"medianValues":[],"lowerValues":[],"higherValues":[],"meanLosses":[]}
+
         if modelPath != None:
             self.model.load_state_dict(torch.load(modelPath))
             self.initEpsilon = self.finalEpsilon #to continue the training if it stopped for some reason
+            with open(f"evalStats.pkl","rb") as f:
+                self.evalStats = pickle.load(f)
 
         self.targetModel.load_state_dict(self.model.state_dict())
 
-        self.lossFunction = torch.nn.HuberLoss(reduction='mean', delta=1)
-        self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr,momentum=momentum)
+        self.lossFunction = nn.SmoothL1Loss(reduction='mean')
+        #self.optimizer = optim.RMSprop(self.model.parameters(), lr=lr,momentum=momentum)
+        self.optimizer = optim.Adam(self.model.parameters(),lr=lr)
 
         #initialize replay buffer
         self.replayBuffer = replayBuffer(self.bufferSize)
@@ -73,7 +79,7 @@ class DDQN():
 
 
         state = torch.tensor(self.state,dtype=torch.float32,device=device) / 255.0
-        actionSelected, value = self.actionSample(state,self.epsilon)
+        actionSelected, value = self.actionSample(state,epsilon)
 
         if action == None:
             action = actionSelected
@@ -95,7 +101,7 @@ class DDQN():
     def takeAction2(self,epsilon,evaluate=False,action=None):
 
         state = torch.tensor(self.state,dtype=torch.float32,device=device) / 255.0
-        actionSelected, value = self.actionSample(state,self.epsilon)
+        actionSelected, value = self.actionSample(state,epsilon)
         if action == None:
             action = actionSelected
 
@@ -118,7 +124,7 @@ class DDQN():
         totalTime = [0,0]
         losses = 0
 
-        evalStats = {"meanScores":[], "stdScores":[],"medianValues":[],"lowerValues":[],"higherValues":[],"meanLosses":[]}
+        
         
         for e in range(self.totalTrainSteps):
 
@@ -153,6 +159,8 @@ class DDQN():
                 loss = self.lossFunction(q_a,target)
                 loss.backward()
 
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=0.5)
+
                 self.optimizer.step()
            
                 step += 1
@@ -165,16 +173,17 @@ class DDQN():
             if step % self.evaluationFreq == 0:
 
                 print(f"total loss in the last {self.evaluationFreq} steps is {losses}")
-                
 
                 meanTotalReward, stdTotalReward, medianTotalValue, lowerPercentile, higherPercentile = self.evaluate()
 
-                evalStats['meanScores'].append(meanTotalReward)
-                evalStats['stdScores'].append(stdTotalReward)
-                evalStats['medianValues'].append(medianTotalValue)
-                evalStats['lowerValues'].append(lowerPercentile)
-                evalStats['higherValues'].append(higherPercentile)
-                evalStats['meanLosses'].append(losses/self.evaluationFreq)
+                now = datetime.now()
+
+                self.evalStats['meanScores'].append(meanTotalReward)
+                self.evalStats['stdScores'].append(stdTotalReward)
+                self.evalStats['medianValues'].append(medianTotalValue)
+                self.evalStats['lowerValues'].append(lowerPercentile)
+                self.evalStats['higherValues'].append(higherPercentile)
+                self.evalStats['meanLosses'].append(losses/self.evaluationFreq)
 
                 losses=0
 
@@ -185,8 +194,10 @@ class DDQN():
 
                 torch.save(self.model.state_dict(),f"./savedModels/{GAME.split('/')[-1]}_step_{step}.pth")
                 torch.save(self.bestWeights,f"./bestSavedModels/{GAME.split('/')[-1]}_step_{step}.pth")
-                with open(f"evalStats.pkl","wb") as f:
-                    pickle.dump(evalStats, f)
+
+                with open("evalStats_"+now.strftime("%Y_%m_%d_%I_%M%p")+".pkl","wb") as f:
+                    pickle.dump(self.evalStats, f)
+                    
             if step % self.tau == 0:
 
                 self.targetModel.load_state_dict(self.model.state_dict())
@@ -263,12 +274,12 @@ class DDQN():
         totalReward = 0
 
         for k in range(self.noopActions): #number of no operation actions
-            reward,done,value = self.takeAction2(self.evaluationEpsilon,evaluate=True,action=0)
+            reward,done,value = self.takeAction2(0.002,evaluate=True,action=0)
             totalReward += reward
             self.worker.env.render()
         
         for j in range(self.evaluationSteps):
-            reward,done,value = self.takeAction2(self.evaluationEpsilon,evaluate=True)
+            reward,done,value = self.takeAction2(0.002,evaluate=True)
             totalReward += reward
             self.worker.env.render()
         
@@ -276,8 +287,8 @@ class DDQN():
             
 if __name__ == "__main__":
 
-#    modelPath = r"savedModels\Assault-v5_step_950000.pth"
-    modelPath = None    
+    modelPath = r"savedModels\AssaultDeterministic-v4_step_1900000.pth"
+    # modelPath = None    
     agent = DDQN(GAME,NUMACTIONS,modelPath=modelPath)
     agent.train()
 
@@ -287,7 +298,7 @@ if __name__ == "__main__":
     # agent.render()
 
 
-# #%%
+#%%
 # import matplotlib.pyplot as plt
 # import numpy as np
 # import pickle
@@ -295,4 +306,4 @@ if __name__ == "__main__":
 #     evalStats = pickle.load(f)
 
 # plt.plot(evalStats['meanScores'])
-# # %%
+# %%

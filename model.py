@@ -100,11 +100,13 @@ class Model(nn.Module):
         # $A$
         action_value = self.action_value(h)
         # $V$
-        state_value = self.state_value(h)
+        #state_value = self.state_value(h)
 
         # $A(s, a) - \frac{1}{|\mathcal{A}|} \sum_{a' \in \mathcal{A}} A(s, a')$
-        action_score_centered = action_value - action_value.mean(dim=-1, keepdim=True)
+        #action_score_centered = action_value - action_value.mean(dim=-1, keepdim=True)
         # $Q(s, a) =V(s) + \Big(A(s, a) - \frac{1}{|\mathcal{A}|} \sum_{a' \in \mathcal{A}} A(s, a')\Big)$
-        q = state_value + action_score_centered
+        #q = state_value + action_score_centered
+
+        q = action_value
 
         return q
