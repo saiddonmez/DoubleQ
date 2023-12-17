@@ -26,7 +26,7 @@ class DDQN():
     def __init__(self,GAME,NUMACTIONS,initEpsilon=1,finalEpsilon=0.1, epsilonDecreaseTime=100000,\
                  bufferSize=100000,batchSize=32,totalTrainSteps=5000000,lr=0.00025, discount=0.99,tau=10000,\
                  evaluationSteps=4500,evaluationEpisodes=10,evaluationFreq=100000, evaluationEpsilon = 0.05, noopActions = 8,\
-                 momentum=0.95,render=False,modelPath=None):
+                 momentum=0.95,render=False,modelPath=None,savedStatsPath=None):
         
         self.numactions = NUMACTIONS
         self.initEpsilon = initEpsilon
@@ -53,10 +53,17 @@ class DDQN():
         self.evalStats = {"meanScores":[], "stdScores":[],"medianValues":[],"lowerValues":[],"higherValues":[],"meanLosses":[]}
 
         if modelPath != None:
+            #to continue the training if it stopped for some reason
             self.model.load_state_dict(torch.load(modelPath))
             self.initEpsilon = self.finalEpsilon #to continue the training if it stopped for some reason
-            with open(f"evalStats.pkl","rb") as f:
+            with open(savedStatsPath,"rb") as f:
                 self.evalStats = pickle.load(f)
+            
+            self.startingStep = int(modelPath.split('.')[0].split('_')[-1]) + 1 
+
+        else:
+            #train from scratch
+            self.startingStep = 1
 
         self.targetModel.load_state_dict(self.model.state_dict())
 
@@ -118,7 +125,7 @@ class DDQN():
         return reward, done, value        
 
     def train(self):
-        step = 1
+        step = self.startingStep
 
         t0 = perf_counter()
         totalTime = [0,0]
@@ -197,7 +204,7 @@ class DDQN():
 
                 with open("evalStats_"+now.strftime("%Y_%m_%d_%I_%M%p")+".pkl","wb") as f:
                     pickle.dump(self.evalStats, f)
-                    
+
             if step % self.tau == 0:
 
                 self.targetModel.load_state_dict(self.model.state_dict())
@@ -287,14 +294,14 @@ class DDQN():
             
 if __name__ == "__main__":
 
-    modelPath = r"savedModels\AssaultDeterministic-v4_step_1900000.pth"
-    # modelPath = None    
-    agent = DDQN(GAME,NUMACTIONS,modelPath=modelPath)
+    modelPath = r"savedModels\AssaultDeterministic-v4_step_2300000.pth" #to continue training or to render performance
+    savedStatsPath = r"evalStats_2023_12_17_03_31PM.pkl"
+    # modelPath = None  #to train from scratch  
+    agent = DDQN(GAME,NUMACTIONS,modelPath=modelPath,savedStatsPath=savedStatsPath)
     agent.train()
 
 
-
-    # agent = DDQN(GAME,NUMACTIONS,modelPath = modelPath, render=True)
+    # agent = DDQN(GAME,NUMACTIONS,modelPath = modelPath, render=True, savedStatsPath=savedStatsPath)
     # agent.render()
 
 
