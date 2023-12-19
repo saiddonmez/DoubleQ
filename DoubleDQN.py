@@ -26,7 +26,7 @@ class DDQN():
     def __init__(self,GAME,NUMACTIONS,initEpsilon=1,finalEpsilon=0.1, epsilonDecreaseTime=100000,\
                  bufferSize=100000,batchSize=32,totalTrainSteps=5000000,lr=0.00025, discount=0.99,tau=10000,\
                  evaluationSteps=4500,evaluationEpisodes=10,evaluationFreq=100000, evaluationEpsilon = 0.05, noopActions = 8,\
-                 momentum=0.95,render=False,modelPath=None,savedStatsPath=None):
+                 momentum=0.95,render=False,modelPath=None,savedStatsPath=None,mode="DoubleDQN"):
         
         self.numactions = NUMACTIONS
         self.initEpsilon = initEpsilon
@@ -45,6 +45,7 @@ class DDQN():
         self.tau = tau
         self.bestTotalReward = -np.Inf
         self.bestWeights = None
+        self.mode = mode
 
         #initialize models
         self.model = Model(self.numactions).to(device)
@@ -199,10 +200,10 @@ class DDQN():
                 print(f"total time for simulation in {step} steps is {totalTime[0]}")
                 print(f"total time for training in {step} steps is {totalTime[1]}")
 
-                torch.save(self.model.state_dict(),f"./savedModels/{GAME.split('/')[-1]}_step_{step}.pth")
-                torch.save(self.bestWeights,f"./bestSavedModels/{GAME.split('/')[-1]}_step_{step}.pth")
+                torch.save(self.model.state_dict(),f"./savedModels/{self.mode}_{GAME.split('/')[-1]}_step_{step}.pth")
+                torch.save(self.bestWeights,f"./bestSavedModels/{self.mode}_{GAME.split('/')[-1]}_step_{step}.pth")
 
-                with open("evalStats_"+now.strftime("%Y_%m_%d_%I_%M%p")+".pkl","wb") as f:
+                with open(f"{self.mode}_evalStats_"+now.strftime("%Y_%m_%d_%I_%M%p")+".pkl","wb") as f:
                     pickle.dump(self.evalStats, f)
 
             if step % self.tau == 0:
@@ -222,12 +223,13 @@ class DDQN():
     def calculateTarget(self,nextState,reward,terminated):
 
         with torch.no_grad():
-
-            q = self.model(nextState)
             q_tilda = self.targetModel(nextState)
-            bestAction = torch.argmax(q,1)
-            target = reward + (1-terminated) * self.discount*q_tilda.gather(-1, bestAction.unsqueeze(-1)).squeeze(-1) #double q idea
-
+            if self.mode == "DoubleDQN":
+                q = self.model(nextState)
+                bestAction = torch.argmax(q,1)
+                target = reward + (1-terminated) * self.discount*q_tilda.gather(-1, bestAction.unsqueeze(-1)).squeeze(-1) #double q idea
+            if self.mode == "DQN":
+                target = reward + (1-terminated) * self.discount * torch.max(q_tilda,1).values
         return target
         
     def evaluate(self):
@@ -294,10 +296,16 @@ class DDQN():
             
 if __name__ == "__main__":
 
-    modelPath = r"savedModels\AssaultDeterministic-v4_step_2300000.pth" #to continue training or to render performance
-    savedStatsPath = r"evalStats_2023_12_17_03_31PM.pkl"
-    # modelPath = None  #to train from scratch  
-    agent = DDQN(GAME,NUMACTIONS,modelPath=modelPath,savedStatsPath=savedStatsPath)
+    mode = "DQN"
+    #modelPath = r"savedModels\AssaultDeterministic-v4_step_2400000.pth" #to continue training or to render performance
+    modelPath = r"savedModels\DQN_AssaultDeterministic-v4_step_4900000.pth"
+    #modelPath = r"savedModels\AssaultDeterministic-v4_step_5000000.pth"
+    savedStatsPath = r"DQN_evalStats_2023_12_19_04_29AM.pkl"
+
+    #modelPath = None  #to train from scratch
+    #savedStatsPath = None #to train from scratch
+
+    agent = DDQN(GAME,NUMACTIONS,modelPath=modelPath,savedStatsPath=savedStatsPath,mode=mode)
     agent.train()
 
 
@@ -309,8 +317,12 @@ if __name__ == "__main__":
 # import matplotlib.pyplot as plt
 # import numpy as np
 # import pickle
-# with open(f"evalStats.pkl","rb") as f:
-#     evalStats = pickle.load(f)
+# with open(f"DQN_evalStats_2023_12_19_04_29AM.pkl","rb") as f:
+#     evalStatsDQN = pickle.load(f)
 
-# plt.plot(evalStats['meanScores'])
+# with open(f"evalStats_2023_12_18_09_01AM.pkl", "rb") as f:
+#     evalStatsDDQN = pickle.load(f)
+
+# plt.plot(evalStatsDQN['medianValues'])
+# plt.plot(evalStatsDDQN['medianValues'])
 # %%
