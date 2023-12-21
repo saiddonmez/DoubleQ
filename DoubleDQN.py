@@ -10,6 +10,7 @@ from game import Game
 import pickle
 import matplotlib.pyplot as plt
 from datetime import datetime
+from gymnasium.wrappers.monitoring import video_recorder
 
 # If cuda is available, use gpu
 if torch.cuda.is_available():
@@ -26,7 +27,7 @@ class DDQN():
     def __init__(self,GAME,NUMACTIONS,initEpsilon=1,finalEpsilon=0.1, epsilonDecreaseTime=100000,\
                  bufferSize=100000,batchSize=32,totalTrainSteps=5000000,lr=0.00025, discount=0.99,tau=10000,\
                  evaluationSteps=4500,evaluationEpisodes=10,evaluationFreq=100000, evaluationEpsilon = 0.05, noopActions = 8,\
-                 momentum=0.95,render=False,modelPath=None,savedStatsPath=None,mode="DoubleDQN"):
+                 momentum=0.95,render=False,modelPath=None,savedStatsPath=None,mode="DoubleDQN",videoCapture=False):
         
         self.numactions = NUMACTIONS
         self.initEpsilon = initEpsilon
@@ -46,6 +47,7 @@ class DDQN():
         self.bestTotalReward = -np.Inf
         self.bestWeights = None
         self.mode = mode
+        self.videoCapture = videoCapture
 
         #initialize models
         self.model = Model(self.numactions).to(device)
@@ -77,7 +79,7 @@ class DDQN():
 
         #initialize environment
         if render:
-            self.worker = Game(GAME, renderMode = "human", seed = 47)
+            self.worker = Game(GAME, renderMode = "rgb_array_list", seed = 47)
         else:
             self.worker = game.Worker(GAME,None,8)
             self.worker.child.send(('reset',None))
@@ -281,16 +283,28 @@ class DDQN():
 
         self.state = self.worker.reset()
         totalReward = 0
-
+        if self.videoCapture:
+            self.worker.env.metadata['render_fps']=15
+            vrc = video_recorder.VideoRecorder(env=self.worker.env,path="videos/video.mp4",metadata={"step_id":0,"episode_id":0,"render_fps":15})
+            vrc.capture_frame()
         for k in range(self.noopActions): #number of no operation actions
             reward,done,value = self.takeAction2(0.002,evaluate=True,action=0)
             totalReward += reward
             self.worker.env.render()
+            if self.videoCapture:
+                vrc.capture_frame()
+            
         
         for j in range(self.evaluationSteps):
             reward,done,value = self.takeAction2(0.002,evaluate=True)
+            
             totalReward += reward
             self.worker.env.render()
+            if self.videoCapture:
+                vrc.capture_frame()
+
+            if done and self.videoCapture:
+                vrc.close()
         
         self.worker.child.send(("close", None))
             
@@ -298,19 +312,19 @@ if __name__ == "__main__":
 
     mode = "DQN"
     #modelPath = r"savedModels\AssaultDeterministic-v4_step_2400000.pth" #to continue training or to render performance
-    modelPath = r"savedModels\DQN_AssaultDeterministic-v4_step_4900000.pth"
+    modelPath = r"savedModels\AssaultDeterministic-v4_step_5000000.pth"
     #modelPath = r"savedModels\AssaultDeterministic-v4_step_5000000.pth"
-    savedStatsPath = r"DQN_evalStats_2023_12_19_04_29AM.pkl"
+    savedStatsPath = r"evalStats_2023_12_18_07_52AM.pkl"
 
     #modelPath = None  #to train from scratch
     #savedStatsPath = None #to train from scratch
 
-    agent = DDQN(GAME,NUMACTIONS,modelPath=modelPath,savedStatsPath=savedStatsPath,mode=mode)
-    agent.train()
+    # agent = DDQN(GAME,NUMACTIONS,modelPath=modelPath,savedStatsPath=savedStatsPath,mode=mode)
+    # agent.train()
 
 
-    # agent = DDQN(GAME,NUMACTIONS,modelPath = modelPath, render=True, savedStatsPath=savedStatsPath)
-    # agent.render()
+    agent = DDQN(GAME,NUMACTIONS,modelPath = modelPath, render=True, savedStatsPath=savedStatsPath)
+    agent.render()
 
 
 #%%
