@@ -328,15 +328,35 @@ if __name__ == "__main__":
 
 
 #%%
-# import matplotlib.pyplot as plt
-# import numpy as np
-# import pickle
-# with open(f"DQN_evalStats_2023_12_19_04_29AM.pkl","rb") as f:
-#     evalStatsDQN = pickle.load(f)
+import matplotlib.pyplot as plt
+import numpy as np
+import pickle
+with open(f"DQN_evalStats_2023_12_19_11_10AM.pkl","rb") as f:
+    evalStatsDQN = pickle.load(f)
 
-# with open(f"evalStats_2023_12_18_09_01AM.pkl", "rb") as f:
-#     evalStatsDDQN = pickle.load(f)
+with open(f"evalStats_2023_12_18_07_52AM.pkl", "rb") as f:
+    evalStatsDDQN = pickle.load(f)
 
-# plt.plot(evalStatsDQN['medianValues'])
-# plt.plot(evalStatsDDQN['medianValues'])
+plt.figure(1)
+#plt.plot(evalStatsDQN['medianValues'])
+plt.plot(evalStatsDQN['medianValues'])
+plt.plot(evalStatsDDQN['medianValues'])
+
+#plt.plot(evalStatsDDQN['medianValues'])
+
+plt.title("Assault Value Functions")
+plt.legend(['DQN','DoubleDQN'])
+plt.xlabel('Training steps (per 100k)')
+plt.ylabel('Median Value estimates')
+
+plt.figure(2)
+
+plt.plot(evalStatsDQN['meanScores'])
+plt.plot(evalStatsDDQN['meanScores'])
+
+plt.title("Assault Scores")
+plt.legend(['DQN','DoubleDQN'])
+plt.xlabel('Training steps (per 100k)')
+plt.ylabel('Mean Scores')
+
 # %%
